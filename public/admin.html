@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin | UnifyAwards 2026</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="admin-body" data-page="admin">
+  <div class="background"><span></span><span></span><span></span><i></i><i></i><i></i></div>
+  <main class="admin-page admin-center-fix">
+    <section class="login-card" id="loginView">
+      <img src="/assets/logo.png" alt="Unify Awards logo" />
+      <h1>Admin Login</h1>
+      <p>Manage UnifyAwards 2026 website content.</p>
+      <form id="loginForm">
+        <input id="username" type="text" placeholder="Username" autocomplete="username" required />
+        <input id="password" type="password" placeholder="Password" autocomplete="current-password" required />
+        <button type="submit">Login</button>
+      </form>
+      <small id="loginMessage"></small>
+    </section>
+
+    <section class="dashboard hidden" id="dashboardView">
+      <div class="dashboard-top">
+        <div>
+          <p class="eyebrow">Admin Dashboard</p>
+          <h1>UnifyAwards 2026 Control Panel</h1>
+        </div>
+        <div class="dash-actions">
+          <a class="ghost-button" href="/">View Site</a>
+          <button id="logoutBtn" class="ghost-button">Logout</button>
+        </div>
+      </div>
+
+      <div class="admin-grid">
+        <section class="admin-card">
+          <h2>Countdown</h2>
+          <div class="form-grid">
+            <label>Month<input id="countMonth" type="number" min="1" max="12" /></label>
+            <label>Day<input id="countDay" type="number" min="1" max="31" /></label>
+            <label>Year<input id="countYear" type="number" min="2026" /></label>
+            <label>Time<input id="countTime" type="time" /></label>
+          </div>
+        </section>
+
+        <section class="admin-card wide">
+          <h2>Information</h2>
+          <input id="infoTitle" type="text" placeholder="Information title" />
+          <textarea id="infoText" rows="6" placeholder="Information text"></textarea>
+        </section>
+
+        <section class="admin-card wide">
+          <div class="card-head"><h2>Guidelines</h2><button id="addRuleBtn" type="button">Add Rule</button></div>
+          <div id="rulesEditor" class="editor-list"></div>
+        </section>
+
+        <section class="admin-card wide">
+          <h2>Top 3 Podium</h2>
+          <div id="podiumEditor" class="podium-editor"></div>
+        </section>
+
+        <section class="admin-card wide">
+          <div class="card-head"><h2>Full Leaderboard</h2><button id="addEntryBtn" type="button">Add Entry</button></div>
+
+          <div class="leaderboard-visibility-box">
+            <label class="toggle-row">
+              <input id="leaderboardHidden" type="checkbox" />
+              <span>Hide leaderboard from the public website</span>
+            </label>
+
+            <label>
+              Message shown while hidden
+              <textarea id="leaderboardHiddenMessage" rows="3" placeholder="Message shown on the leaderboard page"></textarea>
+            </label>
+          </div>
+
+          <div id="leaderboardEditor" class="editor-list"></div>
+        </section>
+      </div>
+
+      <div class="save-bar">
+        <span id="saveMessage">Changes are saved to the backend JSON file.</span>
+        <button id="saveBtn">Save All Changes</button>
+      </div>
+    </section>
+  </main>
+  <script src="/js/admin.js"></script>
+</body>
+</html>

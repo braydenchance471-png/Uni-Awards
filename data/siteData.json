@@ -1,0 +1,30 @@
+{
+  "countdownDate": "2026-06-29T14:00:00.000Z",
+  "leaderboardHidden": true,
+  "leaderboardHiddenMessage": "Leaderboard is Closed! Check back after we are finished!",
+  "guidelines": [
+    {
+      "title": "Original Work",
+      "text": "All submitted games must be created during the jam period and must follow the official Unify Awards rules."
+    },
+    {
+      "title": "Team Size",
+      "text": "Teams may work solo or in groups. Every team member must be credited properly."
+    },
+    {
+      "title": "Submission Deadline",
+      "text": "Projects must be submitted before the countdown reaches zero. Late submissions may not be counted."
+    },
+    {
+      "title": "Respect",
+      "text": "All participants must be respectful. Harassment, stealing work, or breaking rules can lead to disqualification."
+    }
+  ],
+  "information": {
+    "title": "About UnifyAwards 2026",
+    "text": "Unify Awards is a polished game jam and awards event where developers create, submit, and showcase their games. Compete for placements, prizes, recognition, and a spot on the official leaderboard."
+  },
+  "podium": [],
+  "leaderboard": [],
+  "participants": []
+}

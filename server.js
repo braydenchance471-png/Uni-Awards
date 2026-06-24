@@ -1,349 +1,144 @@
-const express = require("express");
-const fs = require("fs");
-const session = require("express-session");
-const path = require("path");
-const { MongoClient } = require("mongodb");
+const express = require('express');
+const session = require('express-session');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/infinite-awards';
-const ADMIN_ROUTE = process.env.ADMIN_ROUTE || 'admin-portal-42x9z7';
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';
+const SESSION_SECRET = process.env.SESSION_SECRET || 'change-this-session-secret';
 
-let mongoClient;
-let adminsCollection;
+const DATA_DIR = path.join(__dirname, 'data');
+const DATA_FILE = path.join(DATA_DIR, 'siteData.json');
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 
-app.use(express.json());
-app.use(express.static("public"));
+const defaultData = {
+  countdownDate: '2026-12-31T20:00:00',
+  leaderboardHidden: false,
+  leaderboardHiddenMessage: 'The leaderboard is currently hidden. Check back soon for the official rankings.',
+  guidelines: [
+    { title: 'Original Work', text: 'All submitted games must be created during the jam period and must follow the official Unify Awards rules.' },
+    { title: 'Team Size', text: 'Teams may work solo or in groups. Every team member must be credited properly.' },
+    { title: 'Submission Deadline', text: 'Projects must be submitted before the countdown reaches zero. Late submissions may not be counted.' },
+    { title: 'Respect', text: 'All participants must be respectful. Harassment, stealing work, or breaking rules can lead to disqualification.' }
+  ],
+  information: {
+    title: 'About UnifyAwards 2026',
+    text: 'Unify Awards is a polished game jam and awards event where developers create, submit, and showcase their games. Compete for placements, prizes, recognition, and a spot on the official leaderboard.'
+  },
+  podium: [
+    { placement: '2nd Place', gameName: 'Runner Up Game', image: '', prize: '£50 Prize' },
+    { placement: '1st Place', gameName: 'Champion Game', image: '', prize: '£100 Prize' },
+    { placement: '3rd Place', gameName: 'Third Place Game', image: '', prize: '£25 Prize' }
+  ],
+  leaderboard: [
+    { rank: 1, team: 'BlueByte Studios', project: 'Skyline Rush', score: 98, status: 'Winner', prize: '£100' },
+    { rank: 2, team: 'PixelForge', project: 'Neon Drift', score: 93, status: 'Finalist', prize: '£50' },
+    { rank: 3, team: 'Nova Devs', project: 'Echo World', score: 89, status: 'Finalist', prize: '£25' },
+    { rank: 4, team: 'SoloCraft', project: 'Tiny Quest', score: 84, status: 'Reviewed', prize: '-' }
+  ]
+};
 
+fs.mkdirSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+function ensureDataFile() {
+  if (!fs.existsSync(DATA_FILE)) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(defaultData, null, 2));
+  }
+}
+
+function readData() {
+  ensureDataFile();
+  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+}
+
+function writeData(data) {
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+}
+
+ensureDataFile();
+
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true }));
 app.use(session({
-  secret: process.env.SESSION_SECRET || "some-random-secret-key",
+  secret: SESSION_SECRET,
   resave: false,
-  saveUninitialized: false
+  saveUninitialized: false,
+  cookie: { httpOnly: true, maxAge: 1000 * 60 * 60 * 8 }
 }));
+app.use(express.static(PUBLIC_DIR));
 
-const SUB_FILE = "submissions.json";
-const DATA_FILE = "data.json";
-
-const activeAdmins = {};
-const PRESENCE_TTL = 15000;
-
-if (!fs.existsSync(SUB_FILE)) fs.writeFileSync(SUB_FILE, "[]");
-if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, "{}");
-
-async function connectMongo() {
-  try {
-    mongoClient = new MongoClient(MONGODB_URI);
-    await mongoClient.connect();
-    const db = mongoClient.db();
-    adminsCollection = db.collection('admins');
-    console.log('Connected to MongoDB');
-  } catch (error) {
-    console.error('Failed to connect to MongoDB:', error);
-    process.exit(1);
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '');
+    cb(null, `${Date.now()}-${safe}`);
   }
-}
+});
 
-async function readAdmin(username) {
-  const admin = await adminsCollection.findOne({ username });
-  if (!admin) return null;
-  return { password: admin.password, name: admin.name };
-}
-
-async function writeAdmin(username, admin) {
-  await adminsCollection.updateOne(
-    { username },
-    { $set: { username, password: admin.password, name: admin.name } },
-    { upsert: true }
-  );
-}
-
-async function deleteAdmin(username) {
-  await adminsCollection.deleteOne({ username });
-}
-
-async function readAdmins() {
-  const admins = await adminsCollection.find({}).toArray();
-  const result = {};
-  for (const admin of admins) {
-    result[admin.username] = { password: admin.password, name: admin.name };
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith('image/')) return cb(new Error('Only image files are allowed.'));
+    cb(null, true);
   }
-  return result;
+});
+
+function requireAdmin(req, res, next) {
+  if (!req.session.isAdmin) return res.status(401).json({ success: false, message: 'Not logged in.' });
+  next();
 }
 
-async function writeAdmins(data) {
-  
-  await adminsCollection.deleteMany({});
-  const docs = Object.entries(data).map(([username, admin]) => ({
-    username,
-    password: admin.password,
-    name: admin.name
-  }));
-  if (docs.length > 0) {
-    await adminsCollection.insertMany(docs);
-  }
-}
+app.get('/api/data', (req, res) => res.json(readData()));
 
-/* =========================
-   ADMIN ACCOUNTS
-========================= */
-/* =========================
-   ADMIN LOGIN (MULTI-USER)
-========================= */
-
-app.post("/login", async (req, res) => {
+app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
-
-  const admin = await readAdmin(username);
-  if (!admin || admin.password !== password) {
-    return res.status(401).json({ error: "Invalid login" });
-  }
-
-  req.session.admin = true;
-  req.session.adminName = admin.name;
-
-  res.json({
-    success: true,
-    name: admin.name
-  });
-});
-
-
-/* =========================
-   HELPERS
-========================= */
-function readSubs() {
-  return JSON.parse(fs.readFileSync(SUB_FILE, "utf8"));
-}
-
-function writeSubs(data) {
-  fs.writeFileSync(SUB_FILE, JSON.stringify(data, null, 2));
-}
-
-/* =========================
-   AUTH
-========================= */
-
-
-
-
-
-
-app.post("/logout", (req, res) => {
-  try {
-    if (req.sessionID && activeAdmins[req.sessionID]) delete activeAdmins[req.sessionID];
-  } catch (e) {}
-  req.session.destroy(() => res.sendStatus(200));
-});
-
-
-app.post('/admin/heartbeat', (req, res) => {
-  if (!req.session || !req.session.admin) return res.sendStatus(403);
-  const sid = req.sessionID;
-  const name = req.session.adminName || 'admin';
-  const now = Date.now();
-
-  
-  activeAdmins[sid] = { username: name, lastSeen: now };
-
-  
-  for (const k of Object.keys(activeAdmins)) {
-    if (now - activeAdmins[k].lastSeen > PRESENCE_TTL) delete activeAdmins[k];
-  }
-
-  
-  let others = 0;
-  for (const k of Object.keys(activeAdmins)) {
-    if (k === sid) continue;
-    if (now - activeAdmins[k].lastSeen <= PRESENCE_TTL) others++;
-  }
-
-  res.json({ others });
-});
-
-/* =========================
-   ADMIN: RESET CREDENTIALS
-   Body: { oldUsername, oldPassword, newUsername, newPassword, newName }
-   Verifies old credentials and updates admins.json
-========================= */
-app.post('/admin/reset-credentials', async (req, res) => {
-  const { oldUsername, oldPassword, newUsername, newPassword, newName } = req.body;
-  if (!oldUsername || !oldPassword || !newUsername || !newPassword) {
-    return res.status(400).json({ error: 'Missing fields' });
-  }
-
-  const existing = await readAdmin(oldUsername);
-  if (!existing || existing.password !== oldPassword) {
-    return res.status(401).json({ error: 'Invalid current credentials' });
-  }
-
-  
-  await deleteAdmin(oldUsername);
-  await writeAdmin(newUsername, { password: newPassword, name: newName || existing.name });
-
-  
-  if (req.session && req.session.admin) {
-    if (req.session.adminName === existing.name) {
-      req.session.adminName = (await readAdmin(newUsername)).name;
-    }
-  }
-
-  res.json({ success: true });
-});
-
-
-app.get('/admin/list-admins', async (req, res) => {
-  try {
-    const admins = await readAdmins();
-    return res.json(Object.keys(admins));
-  } catch (e) {
-    return res.status(500).json({ error: 'Unable to read admins' });
-  }
-});
-
-/* =========================
-   ADMIN PAGE
-========================= */
-app.get(ADMIN_ROUTE, (req, res) => {
-  res.sendFile(path.join(__dirname, "admin.html"));
-});
-
-/* =========================
-   ADMIN: GET SUBMISSIONS
-========================= */
-app.get("/admin/submissions", (req, res) => {
-  if (!req.session.admin) return res.sendStatus(403);
-  res.json(readSubs());
-});
-
-/* =========================
-   ADMIN: UPDATE SUBMISSION
-========================= */
-app.post("/admin/submissions/update", (req, res) => {
-  if (!req.session || !req.session.admin) {
-    console.warn('Unauthorized attempt to update submission from', req.ip);
-    return res.status(403).json({ error: 'not_authenticated' });
-  }
-
-  const { id, status, reason } = req.body || {};
-  if (typeof id === 'undefined') return res.status(400).json({ error: 'missing_id' });
-
-  const subs = readSubs();
-  const sub = subs.find(s => s.id === id);
-  if (!sub) {
-    console.warn('Submission update: id not found', id);
-    return res.status(404).json({ error: 'not_found' });
-  }
-
-  console.log(`Admin ${req.session.adminName || '?'} updating submission ${id} -> ${status}`);
-  sub.status = status;
-  sub.reason = reason || "";
-
-  writeSubs(subs);
-  res.json({ success: true });
-});
-
-/* =========================
-   ADMIN: UPDATE COUNTDOWN
-========================= */
-app.post("/update", (req, res) => {
-  if (!req.session || !req.session.admin) {
-    console.warn('Unauthorized attempt to update countdown from', req.ip);
-    return res.status(403).json({ error: 'not_authenticated' });
-  }
-
-  try {
-    const body = req.body || {};
-    console.log(`Admin ${req.session.adminName || '?'} updating countdown:`, body);
-    fs.writeFileSync(DATA_FILE, JSON.stringify(body, null, 2));
+  if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+    req.session.isAdmin = true;
     return res.json({ success: true });
-  } catch (e) {
-    console.error('Failed to write data file', e);
-    return res.status(500).json({ error: 'failed_to_write' });
   }
+  res.status(401).json({ success: false, message: 'Invalid username or password.' });
 });
 
-
-app.get('/admin/whoami', (req, res) => {
-  if (req.session && req.session.admin) {
-    return res.json({ admin: true, name: req.session.adminName || null });
-  }
-  return res.json({ admin: false });
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => res.json({ success: true }));
 });
 
-app.get("/data", (req, res) => {
-  res.json(JSON.parse(fs.readFileSync(DATA_FILE, "utf8")));
+app.get('/api/admin/check', (req, res) => res.json({ loggedIn: !!req.session.isAdmin }));
+
+app.post('/api/admin/save', requireAdmin, (req, res) => {
+  const incoming = req.body;
+  if (!incoming || typeof incoming !== 'object') return res.status(400).json({ success: false, message: 'Invalid data.' });
+
+  const clean = {
+    countdownDate: incoming.countdownDate || defaultData.countdownDate,
+    leaderboardHidden: Boolean(incoming.leaderboardHidden),
+    leaderboardHiddenMessage: typeof incoming.leaderboardHiddenMessage === 'string' && incoming.leaderboardHiddenMessage.trim() ? incoming.leaderboardHiddenMessage.trim() : defaultData.leaderboardHiddenMessage,
+    guidelines: Array.isArray(incoming.guidelines) ? incoming.guidelines : defaultData.guidelines,
+    information: incoming.information && typeof incoming.information === 'object' ? incoming.information : defaultData.information,
+    podium: Array.isArray(incoming.podium) ? incoming.podium.slice(0, 3) : defaultData.podium,
+    leaderboard: Array.isArray(incoming.leaderboard) ? incoming.leaderboard : defaultData.leaderboard
+  };
+
+  writeData(clean);
+  res.json({ success: true, data: clean });
 });
 
-/* =========================
-   PUBLIC: CREATE SUBMISSION
-========================= */
-app.post("/submit", (req, res) => {
-  const {
-    creator,
-    name,
-    username,
-    teamName,
-    teamSize,
-    gameLink,
-    link,
-    robloxLink,
-    game
-  } = req.body;
-
-  const finalCreator = creator || name || username || teamName;
-  const finalGame = gameLink || link || robloxLink || game;
-
-  if (!finalCreator || !finalGame) {
-    return res.status(400).send("Invalid submission payload");
-  }
-
-  const subs = readSubs();
-
-  subs.push({
-    id: Date.now(),
-    creator: finalCreator,
-    teamSize: teamSize || "",
-    gameLink: finalGame,
-    status: "pending",
-    reason: "",
-    submittedAt: new Date().toISOString()
-  });
-
-  writeSubs(subs);
-  res.sendStatus(200);
+app.post('/api/admin/upload', requireAdmin, upload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ success: false, message: 'No image uploaded.' });
+  res.json({ success: true, url: `/uploads/${req.file.filename}` });
 });
 
-/* =========================
-   PUBLIC: GET ALL SUBMISSIONS
-========================= */
-app.get("/submissions", (req, res) => {
-  res.json(readSubs());
-});
+app.get('/admin', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'admin.html')));
+app.get('/leaderboard', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'leaderboard.html')));
+app.get('/guidelines', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'guidelines.html')));
+app.get('/information', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'information.html')));
+app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
 
-/* =========================
-   PUBLIC: GET ONE SUBMISSION
-========================= */
-app.get("/submission/:id", (req, res) => {
-  const subs = readSubs();
-  const sub = subs.find(s => String(s.id) === req.params.id);
-  if (!sub) return res.sendStatus(404);
-  res.json(sub);
-});
-
-/* =========================
-   FALLBACK
-========================= */
-app.use((req, res) => {
-  res.sendFile(path.join(__dirname, "public/index.html"));
-});
-
-
-/* =========================
-   START
-========================= */
-connectMongo().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
-    console.log(`Admin URL: http://localhost:${PORT}/admin`);
-  });
-});
+app.listen(PORT, () => console.log(`UnifyAwards 2026 running on http://localhost:${PORT}`));
